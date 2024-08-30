@@ -26,7 +26,7 @@ jobs:
           git config rebase.backend apply;
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com";
           git config --global user.name "github-actions[bot]";
-          echo ${{ github.token }} | gh auth login --with-token;
+          echo ${{ secrets.MERGE_TOKEN }} | gh auth login --with-token;
           UPSTREAM=$(gh api repos/:owner/:repo --jq .parent.full_name);
           if [ -z $UPSTREAM ]; then
             echo "Can't find upstream" >&2 && exit 1;
