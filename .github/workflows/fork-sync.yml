@@ -4,6 +4,7 @@ on:
   workflow_call:
     inputs:
       target-branch:
+      	type: string
         description: 'Branch in your fork to sync (default: core)'
         required: false
         default: 'core'
