@@ -1,0 +1,64 @@
+name: Reusable Fork Sync
+
+on:
+  workflow_call:
+    inputs:
+      target-branch:
+        description: 'Branch in your fork to sync (default: core)'
+        required: false
+        default: 'core'
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.MERGE_TOKEN }}
+      - name: Merge upstream
+        run: |
+          set -e;
+          echo "Pull repo...";
+          git pull --unshallow;
+          echo "Pulled. Configure bot...";
+          export GIT_EDITOR=true
+          git config rebase.backend apply;
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com";
+          git config --global user.name "github-actions[bot]";
+          echo ${{ github.token }} | gh auth login --with-token;
+          UPSTREAM=$(gh api repos/:owner/:repo --jq .parent.full_name);
+          if [ -z $UPSTREAM ]; then
+            echo "Can't find upstream" >&2 && exit 1;
+          fi;
+          if [ ! $(echo $UPSTREAM | egrep '^(http|git@)') ]; then
+            UPSTREAM=https://github.com/$UPSTREAM.git
+          fi;
+          echo $UPSTREAM;
+          git remote add upstream $UPSTREAM;
+          echo "Fetch upstream...";
+          git fetch upstream master;
+          echo "Fetched. Find commit differences...";
+          fork_point=$(git merge-base upstream/master origin/${{ inputs.target-branch }});
+          echo $fork_point;
+          echo "Starting rebase...";
+          if ! git rebase --onto upstream/master $fork_point origin/${{ inputs.target-branch }}; then
+            echo "Had a conflict, trying to solve...";
+            while git status | grep -q "needs merge"; do
+              while IFS= read -r -d $'\0' file; do
+                conflict_message=$(git status --porcelain=v2 "$file" | grep "^DD" | cut -c 4-)
+
+                if echo "$conflict_message" | grep -q "deleted in .* and renamed to"; then
+                  echo "Rename/delete conflict detected: $conflict_message"
+                  echo "  - Accepting upstream rename."
+                  git add "$file"
+                elif echo "$conflict_message" | grep -q "deleted"; then
+                  echo "Deletion conflict: $conflict_message"
+                  echo "  - Accepting deletion."
+                  git rm -f "$file"
+                fi
+              done < <(git ls-files -u --unmerged -z)
+              git rebase --continue
+            done
+          fi
+          echo "Rebased. Push to origin...";
+          git push --force-with-lease origin HEAD:${{ inputs.target-branch }};
